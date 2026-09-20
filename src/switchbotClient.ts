@@ -76,8 +76,18 @@ export class SwitchBotClient implements ISwitchBotClient {
       for (const handler of this.deviceDiscoveredHandlers) {
         ;(this.client as any).on?.('device-discovered', handler)
       }
+
       this.lastDiscoveryAt = 0
       this.logger?.info?.('SwitchBot client initialized with native resilience features')
+
+      if (this.cfg.enableBLE !== false) {
+        void this.ensureDiscovered(false).catch((error) => {
+          this.logger?.warn?.(
+            'Initial BLE discovery failed; discovery will be retried on demand:',
+            error,
+          )
+        })
+      }
     } catch (e) {
       this.logger?.warn?.('Failed to load node-switchbot; will use OpenAPI fallback:', e)
       this.client = null

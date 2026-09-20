@@ -281,12 +281,7 @@ export class SwitchBotHAPPlatform {
               continue
             }
             const service = accessory.getService(Service) || accessory.addService(Service)
-            const charNames = Object.keys(s.characteristics || {})
-            for (const existingChar of service.characteristics.slice()) {
-              if (!charNames.includes(existingChar.displayName)) {
-                service.removeCharacteristic(existingChar)
-              }
-            }
+
             for (const [charName, getterSetterRaw] of Object.entries(s.characteristics || {})) {
               const getterSetter: any = getterSetterRaw
               const Characteristic = (hap.Characteristic as any)[charName]
