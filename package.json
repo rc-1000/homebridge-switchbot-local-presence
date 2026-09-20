@@ -93,7 +93,7 @@
   "dependencies": {
     "@homebridge/plugin-ui-utils": "^2.2.3",
     "class-validator": "^0.15.1",
-    "node-switchbot": "github:rc-1000/node-switchbot-local-presence#v4.0.3-local-presence.2"
+    "node-switchbot": "github:rc-1000/node-switchbot-local-presence#v4.0.3-local-presence.5"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^8.2.0",

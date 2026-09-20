@@ -7,9 +7,15 @@ import { CharacteristicMissingError, SwitchbotAuthenticationError, SwitchbotOper
 export interface ISwitchBotClient {
   init: () => Promise<void>
   getDevice: (id: string) => Promise<any>
+  getManagedDevice: (id: string) => any
   getDevices: () => Promise<any[]>
   setDeviceState: (id: string, body: any) => Promise<any>
   destroy: () => Promise<void>
+  onDeviceDiscovered: (handler: (device: any) => void) => void
+  offDeviceDiscovered: (handler: (device: any) => void) => void
+
+  startContinuousBLEDiscovery: () => Promise<void>
+  stopContinuousBLEDiscovery: () => void
 }
 
 /**
@@ -25,6 +31,8 @@ export class SwitchBotClient implements ISwitchBotClient {
   private lastDiscoveryAt = 0
   private logger: import('homebridge').Logger
   private pendingWrites: Map<string, { timer: any, body: any, resolvers: Array<{ resolve: (v: any) => void, reject: (e: any) => void }> }> = new Map()
+  private readonly deviceDiscoveredHandlers = new Set<(device: any) => void>()
+  private continuousBLEDiscoveryStarted = false
 
   constructor(cfg: SwitchBotPluginConfig) {
     this.cfg = cfg
@@ -62,6 +70,12 @@ export class SwitchBotClient implements ISwitchBotClient {
         scanTimeout,
         ...rawNodeClientConfig,
       })
+
+      // Register device-discovered handlers that may have been
+      // subscribed before the node-switchbot client was initialized.
+      for (const handler of this.deviceDiscoveredHandlers) {
+        ;(this.client as any).on?.('device-discovered', handler)
+      }
       this.lastDiscoveryAt = 0
       this.logger?.info?.('SwitchBot client initialized with native resilience features')
     } catch (e) {
@@ -211,6 +225,7 @@ export class SwitchBotClient implements ISwitchBotClient {
     if (this.client?.cleanup) {
       await this.client.cleanup()
     }
+    this.continuousBLEDiscoveryStarted = false
     this.client = null
     this.lastDiscoveryAt = 0
   }
@@ -231,12 +246,33 @@ export class SwitchBotClient implements ISwitchBotClient {
     return 5000
   }
 
-  private getManagedDevice(id: string): any {
+  getManagedDevice(id: string): any {
     const manager = (this.client as any)?.devices
     if (manager?.get) {
       return manager.get(id)
     }
     return undefined
+  }
+
+
+  onDeviceDiscovered(handler: (device: any) => void): void {
+    this.deviceDiscoveredHandlers.add(handler)
+
+    const client = this.client as any
+
+    if (client && typeof client.on === 'function') {
+      client.on('device-discovered', handler)
+    }
+  }
+
+  offDeviceDiscovered(handler: (device: any) => void): void {
+    this.deviceDiscoveredHandlers.delete(handler)
+
+    const client = this.client as any
+
+    if (client && typeof client.off === 'function') {
+      client.off('device-discovered', handler)
+    }
   }
 
   private getManagedDevices(): any[] {
@@ -250,17 +286,71 @@ export class SwitchBotClient implements ISwitchBotClient {
 
   private async ensureDiscovered(force: boolean): Promise<any[]> {
     if (!this.client) {
-      throw new SwitchbotOperationError('No SwitchBot client available', 'no_client')
+      throw new SwitchbotOperationError(
+        'No SwitchBot client available',
+        'no_client',
+      )
     }
 
     const fromManager = this.getManagedDevices()
-    const cacheValid = this.discoveryCacheTtlMs > 0 && (Date.now() - this.lastDiscoveryAt) < this.discoveryCacheTtlMs
+
+    const cacheValid
+      = this.discoveryCacheTtlMs > 0
+        && (Date.now() - this.lastDiscoveryAt) < this.discoveryCacheTtlMs
+
     if (!force && cacheValid && fromManager.length > 0) {
       return fromManager
     }
 
+    /*
+      * Once continuous BLE discovery is running, the DeviceManager is
+      * continuously updated by BLE advertisements. Starting another finite
+      * discovery scan would interfere with the persistent scan.
+      */
+    if (this.continuousBLEDiscoveryStarted) {
+      return fromManager
+    }
+
+    /*
+    * Initial finite discovery.
+    */
     const discovered = await this.client.discover()
     this.lastDiscoveryAt = Date.now()
+
+    /*
+     * The initial scan has now finished. Keep listening for passive BLE
+     * advertisements so event-driven devices such as the Presence Sensor
+     * can update their state in real time.
+     */
+    await this.startContinuousBLEDiscovery()
+
     return discovered
+  }
+
+  async startContinuousBLEDiscovery(): Promise<void> {
+    if (!this.client) {
+      throw new SwitchbotOperationError(
+        'No SwitchBot client available',
+        'no_client',
+      )
+    }
+
+    if (this.continuousBLEDiscoveryStarted) {
+      return
+    }
+
+    await (this.client as any).startContinuousBLEDiscovery()
+    this.continuousBLEDiscoveryStarted = true
+
+    this.logger?.info?.('Continuous BLE discovery started')
+  }
+
+  stopContinuousBLEDiscovery(): void {
+    if (!this.client || !this.continuousBLEDiscoveryStarted) {
+      return
+    }
+
+    ;(this.client as any).stopContinuousBLEDiscovery()
+    this.continuousBLEDiscoveryStarted = false
   }
 }

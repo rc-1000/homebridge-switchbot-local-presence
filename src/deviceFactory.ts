@@ -18,6 +18,7 @@ import {
   LockDevice,
   MeterDevice,
   MotionSensorDevice,
+  PresenceSensorDevice,
   PlugDevice,
   PlugMiniDevice,
   RelaySwitch1PMDevice,
@@ -54,6 +55,7 @@ const DEVICE_CLASS_MAP: Record<string, any> = {
   'contact': ContactSensorDevice,
   'vacuum': VacuumDevice,
   // Canonical, normalized device type keys (lowercase, mapped to device classes)
+  'presence sensor': PresenceSensorDevice,
   'video doorbell': GenericDevice,
   'smart radiator thermostat': GenericDevice,
   'woiosensor': GenericDevice,

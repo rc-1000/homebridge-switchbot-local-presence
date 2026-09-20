@@ -1107,8 +1107,13 @@ export function normalizeTypeForMatter(typeValue: string | undefined | null): st
   if (raw === 'motion sensor') {
     return 'motion'
   }
-  if (['contact sensor', 'presence sensor'].includes(raw)) {
+
+  if (raw === 'contact sensor') {
     return 'contact'
+  }
+
+  if (raw === 'presence sensor') {
+    return 'presence sensor'
   }
 
   // Lock variants

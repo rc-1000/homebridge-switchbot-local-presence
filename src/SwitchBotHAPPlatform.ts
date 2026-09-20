@@ -303,6 +303,11 @@ export class SwitchBotHAPPlatform {
               if (getterSetter && typeof getterSetter.get === 'function') {
                 service.getCharacteristic(Characteristic).onGet(getterSetter.get)
               }
+              if (getterSetter && typeof getterSetter.subscribe === 'function') {
+                getterSetter.subscribe(
+                  service.getCharacteristic(Characteristic),
+                )
+              }
               if (getterSetter && typeof getterSetter.set === 'function') {
                 service.getCharacteristic(Characteristic).onSet(async (value: any) => {
                   await getterSetter.set(value)

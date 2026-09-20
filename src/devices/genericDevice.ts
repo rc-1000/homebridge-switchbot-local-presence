@@ -998,6 +998,156 @@ export class MotionSensorDevice extends GenericDevice {
   }
 }
 
+export class PresenceSensorDevice extends GenericDevice {
+  private presenceInfoHandler?: (info: any) => void
+  private presenceDeviceDiscoveredHandler?: (device: any) => void
+  private presenceDevice?: any
+  private lastPresenceDetected?: boolean
+
+  createHAPAccessory(api: any) {
+    return {
+      services: [
+        {
+          type: 'OccupancySensor',
+          characteristics: {
+            OccupancyDetected: {
+              get: () => {
+                return this.lastPresenceDetected === true ? 1 : 0
+              },
+
+              subscribe: (characteristic: any) => {
+                // createHAPAccessory() can be called more than once.
+                // Do not register duplicate listeners.
+                if (
+                  this.presenceInfoHandler
+                  || this.presenceDeviceDiscoveredHandler
+                ) {
+                  return
+                }
+
+                const subscribeToDevice = (device: any) => {
+                  if (
+                    !device
+                    || typeof device.on !== 'function'
+                    || this.presenceInfoHandler
+                  ) {
+                    return
+                  }
+
+                  this.presenceDevice = device
+
+                  // Initialize the cache from the most recently received BLE advertisement,
+                  // if node-switchbot already has state for this device.
+                  const currentInfo = typeof device.getInfo === 'function'
+                    ? device.getInfo()
+                    : undefined
+
+                  if (typeof currentInfo?.bleServiceData?.movement === 'boolean') {
+                    this.lastPresenceDetected = currentInfo.bleServiceData.movement
+                    characteristic.updateValue(this.lastPresenceDetected ? 1 : 0)
+                  }
+
+                  this.presenceInfoHandler = (info: any) => {
+                    const movement = info?.bleServiceData?.movement
+
+                    if (typeof movement !== 'boolean') {
+                      return
+                    }
+
+                    const occupied = movement
+                    const stateChanged = this.lastPresenceDetected !== occupied
+
+                    this.lastPresenceDetected = occupied
+
+                    if (stateChanged) {
+                      this.log.info(
+                        `[Presence] ${this.opts.id}: ${occupied ? 'occupied' : 'not occupied'}`,
+                      )
+                    }
+
+                    characteristic.updateValue(occupied ? 1 : 0)
+                  }
+
+                  device.on('info-updated', this.presenceInfoHandler)
+
+                  this.log.info(
+                    `[Presence] Subscribed to BLE advertisement updates for ${this.opts.id}`,
+                  )
+                }
+
+                // The device may already have been discovered.
+                const existingDevice = this.client?.getManagedDevice?.(this.opts.id)
+
+                if (existingDevice) {
+                  subscribeToDevice(existingDevice)
+                  return
+                }
+
+                // Otherwise wait until node-switchbot discovers it.
+                this.presenceDeviceDiscoveredHandler = (device: any) => {
+                  const info = typeof device?.getInfo === 'function'
+                    ? device.getInfo()
+                    : undefined
+
+                  if (info?.id !== this.opts.id) {
+                    return
+                  }
+
+                  subscribeToDevice(device)
+
+                  // We only need discovery notification until our device
+                  // has been found.
+                  if (this.presenceDeviceDiscoveredHandler) {
+                    this.client?.offDeviceDiscovered?.(
+                      this.presenceDeviceDiscoveredHandler,
+                    )
+
+                    this.presenceDeviceDiscoveredHandler = undefined
+                  }
+                }
+
+                this.client?.onDeviceDiscovered?.(
+                  this.presenceDeviceDiscoveredHandler,
+                )
+
+                this.log.info(
+                  `[Presence] Waiting for BLE discovery of ${this.opts.id}`,
+                )
+              },
+            },
+          },
+        },
+      ],
+    }
+  }
+
+  async destroy(): Promise<void> {
+    if (
+      this.presenceDevice
+      && this.presenceInfoHandler
+      && typeof this.presenceDevice.off === 'function'
+    ) {
+      this.presenceDevice.off(
+        'info-updated',
+        this.presenceInfoHandler,
+      )
+    }
+
+    if (this.presenceDeviceDiscoveredHandler) {
+      this.client?.offDeviceDiscovered?.(
+        this.presenceDeviceDiscoveredHandler,
+      )
+    }
+
+    this.presenceInfoHandler = undefined
+    this.presenceDeviceDiscoveredHandler = undefined
+    this.presenceDevice = undefined
+    this.lastPresenceDetected = undefined
+
+    await super.destroy()
+  }
+}
+
 export class ContactSensorDevice extends GenericDevice {
   createHAPAccessory(api: any) {
     return {
